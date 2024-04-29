@@ -148,7 +148,7 @@ def encode_all_lightcurves():
 
     # Encode all the lightcurves and save data
     print('Encoding!!!')
-    X_encoded = autoencoder(torch.tensor(X_norm, dtype=torch.float32)).detach().numpy()
+    X_encoded = autoencoder.encode(torch.tensor(X_norm, dtype=torch.float32)).detach().numpy()
     with open('data/full_encoded_lcs.pkl', 'wb') as f:
         pickle.dump((X_encoded, lcs), f)
 

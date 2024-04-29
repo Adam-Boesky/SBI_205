@@ -26,13 +26,20 @@ def train_and_store_sbi():
     with open('data/full_encoded_lcs.pkl', 'rb') as f:
         encoded_lcs, lcs = pickle.load(f)
 
+    # Filter for snr > 3
+    encoded_lcs     = np.array([e_lc for e_lc, lc in zip(encoded_lcs, lcs) if np.mean(lc.snrs) > 3])
+    lcs             = np.array([lc   for e_lc, lc in zip(encoded_lcs, lcs) if np.mean(lc.snrs) > 3])
+
+    # 
+
     # Split into test and train
     print('Preprocessing data!!!')
     predictor_mask = np.array([ True,  True, False, False, False, False, False,  True,  True, False,  True])  # mask for theta that only gets what we actually care about
     all_predictor_labels = np.array(['pspin', 'bfield', 'mns', 'thetapb', 'texp', 'kappa', 'kappagamma', 'mej', 'vej', 'tfloor', 'texplosion'])
     predictor_labels = all_predictor_labels[predictor_mask]
     print(f'theta = {predictor_labels}')
-    X_encoded = np.array([np.concatenate((lc_encoding, [lc.redshift])) for lc_encoding, lc in zip(encoded_lcs, lcs)])
+    # X_encoded = np.array([np.concatenate((lc_encoding, [lc.redshift])) for lc_encoding, lc in zip(encoded_lcs, lcs)])
+    X_encoded = np.array([np.concatenate((lc.mags_interped, lc.magerrs_interped, [lc.redshift])) for lc in lcs])
     y = np.array([np.array(lc.theta)[predictor_mask] for lc in lcs])
 
     # Preprocess the data
@@ -62,8 +69,10 @@ def train_and_store_sbi():
     # Train test split
     X_train, X_test, y_train, y_test = train_test_split(X_encoded, y_norm, random_state=22, test_size=0.2)
     # Hyperparameters
-    nhidden = 20
-    nblocks = 5
+    nhidden = 200
+    nblocks = 7
+
+    print(f'Dimesions:\n\tTrain = {X_train.shape}\n\tTest = {X_test.shape}')
 
     # Initialize your prior
     my_prior, num_params, prior_returns_numpy = process_prior([dist.Uniform(low=torch.tensor([PD_params[0][0]]), high=torch.tensor([PD_params[0][1]])),        # pspin
@@ -90,7 +99,7 @@ def train_and_store_sbi():
 
     # Save the model and posterior
     print('Saving model and data!')
-    with open('data/sbi_results0.pkl', 'wb') as f:
+    with open('data/sbi_results_7blocks_200units_full_lc.pkl', 'wb') as f:
         pickle.dump((hatp_x_y, p_x_y_estimator), f)
 
 

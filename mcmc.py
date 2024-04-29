@@ -11,9 +11,10 @@ from sbi.utils import process_prior
 from interpolate_lcs import ugrizy_to_numbers
 from models.magnetar_model import gen_magnetar_model
 from torch.distributions import Distribution, constraints, Normal
-from astropy.cosmology import Planck18 as cosmo
+from astropy.cosmology import WMAP9 as cosmo
 
 from models.distributions import TruncatedNormal
+from models.custom_sklearn import StandardScaler, train_test_split
 
 import sys
 sys.path.append('/Users/adamboesky/Research/SBI_205/models')
@@ -33,19 +34,20 @@ time_grid = np.repeat(np.linspace(0.1,100,100),6)
 MCMC_PRIOR, NUM_PARAMS, _ = process_prior([dist.Uniform(low=torch.tensor([0.7]), high=torch.tensor([20.0])),    # pspin
                                            dist.Uniform(low=torch.tensor([-2.0]), high=torch.tensor([1.0])),    # bmag
                                            dist.Uniform(low=torch.tensor([-1.0]), high=torch.tensor([1.3])),    # mej
-                                           dist.Uniform(torch.tensor([1000.0]), torch.tensor([30000.0])),
-                                           dist.Exponential(torch.tensor([0.5])),                               # -1 * texp (mean is 27)
-                                           dist.Normal(torch.tensor([0.0]), torch.tensor([1.0]))                # noise
+                                           dist.Uniform(low=torch.tensor([1.0]), high=torch.tensor([30.0])),    # vej  (in 1000s)
+                                           dist.Exponential(torch.tensor([0.1])),                               # -1 * texp (mean is 27)
+                                           dist.Uniform(low=torch.tensor([-10.0]), high=torch.tensor([0.4]))    #dist.Exponential(torch.tensor([1.0]))               # noise
                                         ])
 
 
 def log_likelihood(xs, y, yerr, filts, theta, z, dist_const):
     """Chi squared likelihood of the SLSN model."""
     y_pred = torch.tensor(gen_magnetar_model(xs + theta[4],
-                                torch.tensor([theta[0], 10**theta[1], mns, thetapb, texp, kappa, kappagamma, 10**theta[2], theta[3], tfloor]),
+                                torch.tensor([theta[0], 10**theta[1], mns, thetapb, texp, kappa, kappagamma, 10**theta[2], theta[3]*1000, tfloor]),
                                 filt=filts,
                                 redshift=z,
                                 dist_const=dist_const))
+    y_pred = np.nan_to_num(y_pred, nan=np.inf)
     sigma_sq = yerr**2 + (10.0**theta[5])**2  # adding a white noise term for underestimated noise
     chi_sq = -0.5 * torch.nansum((y - y_pred) ** 2 / sigma_sq + np.log(2 * np.pi * sigma_sq))
     return chi_sq
@@ -75,7 +77,13 @@ def run_mcmc():
         lc.theta[-1] *= -1
     lcs.shape
 
-    # Split into test and train
+    # with open('data/full_encoded_lcs.pkl', 'rb') as f:
+    #     encoded_lcs, lcs = pickle.load(f)
+
+    # # Filter for snr > 3
+    # encoded_lcs     = np.array([e_lc for e_lc, lc in zip(encoded_lcs, lcs) if np.mean(lc.snrs) > 3])
+    # lcs             = np.array([lc   for e_lc, lc in zip(encoded_lcs, lcs) if np.mean(lc.snrs) > 3])
+    lcs_train, lcs = train_test_split(lcs, random_state=22, test_size=0.2)
     predictor_mask = np.array([ True,  True, False, False, False, False, False,  True,  True, False,  True]) # Mask for theta that only gets what we actually care about
     all_predictor_labels = np.array(['pspin', 'bfield', 'mns', 'thetapb', 'texp', 'kappa', 'kappagamma', 'mej', 'vej', 'tfloor', 'texplosion'])
     predictor_labels = all_predictor_labels[predictor_mask]
@@ -101,25 +109,26 @@ def run_mcmc():
     ### RUN MCMC ###
     print('Running MCMC')
     # Multithreaded MCMC
-    for i in range(len(lcs)):
+    n_lcs = len(lcs)
+    for i in range(231, n_lcs):
         with Pool() as pool:
 
             # Initialize the sampler
             sampler = emcee.EnsembleSampler(nwalkers, NUM_PARAMS, log_probability, args=(ts[i], ys[i], yerrs[i], filters[i], zs[i], dist_consts[i]), blobs_dtype=dtype, pool=pool)
 
             # Run 100 burn in steps :)
-            print('Started burn')
+            print(f'Started burn {i+1} / {n_lcs}')
             burn_results = sampler.run_mcmc(p0, 100, progress=True)
-            print('Finished burn')
+            print(f'Finished burn {i+1} / {n_lcs}')
             sampler.reset()
 
             # Do the final sampling
-            print('Started final sampling')
-            final_results = sampler.run_mcmc(burn_results, 4900, progress=True)
-            print('Finished final sampling')
+            print(f'Started final sampling {i+1} / {n_lcs}')
+            final_results = sampler.run_mcmc(burn_results, 6000, progress=True)
+            print(f'Finished final sampling {i+1} / {n_lcs}')
 
         # Save the data
-        with open('mcmc_results.pkl', 'wb') as f:
+        with open(f'/Users/adamboesky/Research/SBI_205/data/mcmc_results_final/mcmc_results{i}.pkl', 'wb') as f:
             pickle.dump((final_results, sampler), f)
 
 

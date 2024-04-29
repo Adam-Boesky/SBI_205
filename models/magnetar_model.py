@@ -57,14 +57,19 @@ def gen_magnetar_model(t, theta, filt=None, dist_const=None, ebv=None, redshift=
     test_t = np.linspace(0,t.max(), 100)
     lum_inp = 2.0 * Ep / tp / (1. + 2.0 * test_t * DAY_CGS / tp) ** 2
 
+    # print('HERE:', np.exp((test_t/tau_diff)**2), 'HERE DONE')
     integrand = 2* lum_inp * test_t/tau_diff * np.exp((test_t/tau_diff)**2)  * 1e52
+    # print(test_t/tau_diff)
+    # print('integrand = ', integrand)
 
     multiplier =  (1.0 - np.exp(-A*test_t**-2)) * np.exp(-(test_t/tau_diff)**2) 
     l_out = multiplier * cumtrapz(integrand, test_t, initial = 0)
+    # print('lout:', l_out)
     lum_function = interpolate.interp1d(test_t, l_out)
     # print('TEST_T: ', test_t)
     # print('HERE:  ', t.min())
     luminosities = lum_function(t)
+    # print('Ls: ', luminosities)
 
     #Do BB calculation
     radius = RAD_CONST * vej * ((t - texp) * ((t-texp)>0))
